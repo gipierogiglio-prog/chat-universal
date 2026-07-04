@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { prisma } from "./db.js";
 import { verifyToken } from "./middleware/auth.js";
+import { config } from "./config.js";
 import { createAndDeliverMessage } from "./lib/deliver.js";
 import { convRoom, userRoom } from "./lib/io.js";
 
@@ -17,6 +18,58 @@ const sendSchema = z.object({
 const typingSchema = z.object({ conversationId: z.string().min(1) });
 
 type Ack = (response: { ok: boolean; error?: string; message?: unknown }) => void;
+
+// Encontra bots com webhookUrl na conversa e encaminha mensagem
+async function forwardToBots(
+  conversationId: string,
+  senderId: string,
+  messageId: string,
+  data: z.infer<typeof sendSchema>
+) {
+  const members = await prisma.conversationMember.findMany({
+    where: { conversationId },
+    include: { user: { select: { id: true, username: true, displayName: true, isBot: true, webhookUrl: true } } },
+  });
+
+  const bots = members.filter(
+    (m) => m.user.isBot && m.user.webhookUrl && m.user.id !== senderId
+  );
+
+  const sender = members.find((m) => m.user.id === senderId)?.user;
+
+  for (const bot of bots) {
+    const url = bot.user.webhookUrl!;
+    const apiKey = config.hermesApiKey;
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "x-api-key": apiKey } : {}),
+        },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          message_id: messageId,
+          sender_username: sender?.username ?? "unknown",
+          sender_display_name: sender?.displayName ?? null,
+          content: data.content,
+          type: data.type,
+          file_url: data.fileUrl ?? null,
+          source: "chat",
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+    } catch (err) {
+      console.error(`[forwardToBot] ${bot.user.username} @ ${url}:`, err);
+    }
+  }
+}
 
 export function setupSocket(io: Server) {
   // Handshake auth: the client passes its JWT in `auth.token`.
@@ -68,6 +121,11 @@ export function setupSocket(io: Server) {
           source: "chat",
         });
         ack?.({ ok: true, message });
+
+        // Encaminha mensagem pra bots com webhookUrl (fire-and-forget)
+        forwardToBots(data.conversationId, userId, message.id, data).catch(
+          (err: unknown) => console.error("forwardToBots error:", err)
+        );
       } catch (err) {
         console.error("message:send failed", err);
         ack?.({ ok: false, error: "Internal error" });
