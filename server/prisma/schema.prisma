@@ -15,6 +15,7 @@ model User {
   displayName  String?
   isBot        Boolean  @default(false)
   webhookUrl   String?
+  botToken     String?  @unique
   createdAt    DateTime @default(now())
 
   memberships    ConversationMember[]

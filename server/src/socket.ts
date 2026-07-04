@@ -2,7 +2,6 @@ import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { prisma } from "./db.js";
 import { verifyToken } from "./middleware/auth.js";
-import { config } from "./config.js";
 import { createAndDeliverMessage } from "./lib/deliver.js";
 import { convRoom, userRoom } from "./lib/io.js";
 
@@ -28,7 +27,7 @@ async function forwardToBots(
 ) {
   const members = await prisma.conversationMember.findMany({
     where: { conversationId },
-    include: { user: { select: { id: true, username: true, displayName: true, isBot: true, webhookUrl: true } } },
+    include: { user: { select: { id: true, username: true, displayName: true, isBot: true, webhookUrl: true, botToken: true } } },
   });
 
   const bots = members.filter(
@@ -39,7 +38,7 @@ async function forwardToBots(
 
   for (const bot of bots) {
     const url = bot.user.webhookUrl!;
-    const apiKey = config.hermesApiKey;
+    const botToken = bot.user.botToken;
 
     try {
       const controller = new AbortController();
@@ -49,7 +48,7 @@ async function forwardToBots(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(apiKey ? { "x-api-key": apiKey } : {}),
+          ...(botToken ? { "x-api-key": botToken } : {}),
         },
         body: JSON.stringify({
           conversation_id: conversationId,

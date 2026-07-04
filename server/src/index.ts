@@ -14,6 +14,7 @@ import contactRoutes from "./routes/contacts.js";
 import conversationRoutes from "./routes/conversations.js";
 import uploadRoutes from "./routes/uploads.js";
 import webhookRoutes from "./routes/webhooks.js";
+import botRoutes from "./routes/bots.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -48,6 +49,7 @@ app.use("/api/contacts", contactRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/webhooks", webhookRoutes);
+app.use("/api/bots", botRoutes);
 
 app.use("/uploads", express.static(path.resolve(config.uploadDir)));
 
